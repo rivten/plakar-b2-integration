@@ -1,0 +1,11 @@
+name: backblaze
+display_name: BackBlaze
+homepage: null
+license: MIT
+description: Integration providing storage capabilities to BackBlaze B2.
+version: v0.0.1
+connectors:
+  - type: storage
+    executable: b2Storage
+    protocols: [b2]
+
