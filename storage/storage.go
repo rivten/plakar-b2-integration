@@ -5,8 +5,6 @@ import (
     "fmt"
     "net/http"
     "io"
-    // TODO: remove this
-    "os"
     "encoding/hex"
     "encoding/json"
     "strings"
@@ -104,21 +102,19 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
     }, nil
 }
 
-func (s *Store) Origin() string { os.Stderr.WriteString("@@@ORIGIN"); return "" }
-func (s *Store) Root() string { os.Stderr.WriteString("@@@ROOT"); return "" }
-func (s *Store) Type() string { os.Stderr.WriteString("@@@TYPE");return "b2" }
+func (s *Store) Origin() string { return "" }
+func (s *Store) Root() string { return "" }
+func (s *Store) Type() string { return "b2" }
 
 func (s *Store) Size(ctx context.Context) (int64, error) {
-    os.Stderr.WriteString("@@@SIZE");
     return 0, fmt.Errorf(">> SIZE")
 }
 
 func (s *Store) Ping(ctx context.Context) error {
-    os.Stderr.WriteString("@@@PING");
     return fmt.Errorf(">> PING")
 }
 
-func (s *Store) Flags() location.Flags { os.Stderr.WriteString("@@@FLAGS"); return 0 }
+func (s *Store) Flags() location.Flags { return 0 }
 
 func (s *Store) getUploadUrl() (string, string, error) {
     client := &http.Client{}
@@ -189,6 +185,8 @@ func (s *Store) Create(ctx context.Context, config []byte) error {
 
 func (s *Store) getFileId(needle string) (string, error) {
     // TODO: this is not optimal, we are iterating on ALL the files in the bucket
+    // just to find one file id
+    // is there a better way to do this ?
 
     // TODO: multiple call to scan through all the files !!!
     client := &http.Client{}
@@ -231,26 +229,16 @@ func (s *Store) getFileId(needle string) (string, error) {
 }
 
 func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac objects.MAC) error {
-    os.Stderr.WriteString("@@@DELETE");
-    os.Stderr.WriteString(fmt.Sprintf("%016x", mac))
     prefix, err := getPrefixFromStorageResource(res)
     if err != nil {
         return err
     }
-    os.Stderr.WriteString(prefix)
 
     filename := fmt.Sprintf("%s%016x", prefix, mac)
     fileId, err := s.getFileId(filename)
     if err != nil {
         return err
     }
-
-    os.Stderr.WriteString("*****\n")
-    os.Stderr.WriteString(filename)
-    os.Stderr.WriteString("*****\n")
-    os.Stderr.WriteString(fileId)
-    os.Stderr.WriteString("*****\n")
-
 
     client := &http.Client{}
     req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_delete_file_version", s.apiUrl), strings.NewReader(fmt.Sprintf("{\"fileName\":\"%s\", \"fileId\":\"%s\"}", filename, fileId)))
@@ -264,10 +252,6 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
     if resp.StatusCode != 200 {
         // TODO: maybe it's not a big deal if the file was not found ??
         // at least log it and do not stop the whole process
-        body, _ := io.ReadAll(resp.Body)
-        os.Stderr.WriteString("*******************\n")
-        os.Stderr.WriteString(string(body))
-        os.Stderr.WriteString("\n")
         return fmt.Errorf("Unable to delete file using backblaze api. Status code: %v", resp.StatusCode)
     }
     defer resp.Body.Close()
@@ -276,14 +260,12 @@ func (s *Store) Delete(ctx context.Context, res storage.StorageResource, mac obj
 }
 
 func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac objects.MAC, rg *storage.Range) (io.ReadCloser, error) {
-    os.Stderr.WriteString("@@@GET");
     prefix, err := getPrefixFromStorageResource(res)
     if err != nil {
         return nil, err
     }
 
     filename := fmt.Sprintf("%s%016x", prefix, mac)
-    os.Stderr.WriteString(filename)
 
     client := &http.Client{}
     req, err := http.NewRequest("GET", fmt.Sprintf("%s/file/%s/%s", s.apiUrl, s.bucketName, filename), nil)
@@ -301,7 +283,6 @@ func (s *Store) Get(ctx context.Context, res storage.StorageResource, mac object
 }
 
 func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac objects.MAC, rd io.Reader) (int64, error) {
-    os.Stderr.WriteString("@@@PUT");
 
     prefix, err := getPrefixFromStorageResource(res)
     if err != nil {
@@ -312,9 +293,6 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
     if err != nil {
         return -1, fmt.Errorf("error while reading put content: %w", err)
     }
-    os.Stderr.WriteString(fmt.Sprintf("%016x", mac))
-    os.Stderr.WriteString(prefix)
-    os.Stderr.WriteString(string(content))
 
     uploadUrl, uploadAuthorizationToken, err := s.getUploadUrl()
     if err != nil {
@@ -346,7 +324,6 @@ func (s *Store) Put(ctx context.Context, res storage.StorageResource, mac object
 }
 
 func getPrefixFromStorageResource(res storage.StorageResource) (string, error) {
-    os.Stderr.WriteString("@@@getPrefixFromStorageResource");
     switch res {
     case storage.StorageResourcePackfile:
         return "packfiles/", nil
@@ -360,8 +337,6 @@ func getPrefixFromStorageResource(res storage.StorageResource) (string, error) {
 }
 
 func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]objects.MAC, error) {
-    os.Stderr.WriteString("@@@LIST");
-
     prefix, err := getPrefixFromStorageResource(res)
     if err != nil {
         return nil, err
@@ -400,8 +375,6 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
     ret := make([]objects.MAC, 0)
     for _, file := range jsonRes["files"].([]interface{}) {
         filename := file.(map[string]interface{})["fileName"].(string)
-        os.Stderr.WriteString(filename)
-        os.Stderr.WriteString("\n")
         if strings.HasPrefix(filename, prefix) {
             realFilename := strings.TrimPrefix(filename, prefix)
             t, err := hex.DecodeString(realFilename)
@@ -412,18 +385,15 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
         }
     }
 
-    os.Stderr.WriteString("@@@ENDLIST");
     return ret, nil
 }
 
 func (s *Store) Mode(ctx context.Context) (storage.Mode, error) {
-    os.Stderr.WriteString("@@@MODE");
     // TODO: based on capabilities
-    return 0, fmt.Errorf(">> MODE")
+    return 0, fmt.Errorf(">> MODE NOT IMPLEMENTED")
 }
 
 func (s *Store) Open(ctx context.Context) ([]byte, error) {
-    os.Stderr.WriteString("@@@OPEN");
     client := &http.Client{}
 
     // NOTE: the backblaze API say this request should be a GET, but it seems that 
@@ -450,6 +420,5 @@ func (s *Store) Open(ctx context.Context) ([]byte, error) {
 }
 
 func (s *Store) Close(ctx context.Context) error {
-    os.Stderr.WriteString("@@@CLOSE");
     return nil
 }
