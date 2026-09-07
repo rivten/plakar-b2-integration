@@ -19,7 +19,6 @@ import (
 type Store struct {
     apiUrl string
     bucketName string
-    // TODO: this may be simplified with only the bucket name we can find the bucket ID
     bucketID string
     authToken string
 }
@@ -35,13 +34,6 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
     } else {
         // TODO: error if location does not start with "b2://" ??
         bucketName = strings.TrimPrefix(value, "b2://")
-    }
-
-    var bucketID string
-    if value, ok := storeConfig["bucketID"]; !ok {
-        return nil, fmt.Errorf("missing bucketID")
-    } else {
-        bucketID = value
     }
 
     var keyId string
@@ -87,6 +79,7 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
         return nil, fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
     }
 
+
     // TODO: check that we have all the capabilities necessaries to peform the next operations
     // but maybe just display them, store them, because we might only need to push, not to pull
     authToken := jsonRes["authorizationToken"].(string)
@@ -94,12 +87,63 @@ func NewStore(ctx context.Context, proto string, storeConfig map[string]string) 
     // TODO: better error checking scheme ?
     apiUrl := jsonRes["apiInfo"].(map[string]interface{})["storageApi"].(map[string]interface{})["apiUrl"].(string)
 
+    var bucketID string
+    if value, ok := storeConfig["bucketID"]; !ok {
+        // if bucketID not specified, try to fetch it
+        tentativeBucketID, err := getBucketIdFromName(apiUrl, authToken, jsonRes["accountId"].(string), bucketName)
+        if err != nil {
+            return nil, err
+        }
+
+        bucketID = tentativeBucketID
+
+    } else {
+        bucketID = value
+    }
+
+
     return &Store{
         apiUrl: apiUrl,
         bucketName: bucketName,
         bucketID: bucketID,
         authToken: authToken,
     }, nil
+}
+
+func getBucketIdFromName(apiUrl string, authToken string, accountID string, needle string) (string, error) {
+    client := &http.Client{}
+    req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_list_buckets", apiUrl), strings.NewReader(fmt.Sprintf("{\"accountId\":\"%s\", \"bucketTypes\":[\"allPrivate\",\"allPublic\"]}", accountID)))
+    req.Header.Add("Authorization", authToken)
+    req.Header.Add("Content-Type", "application/json")
+
+    resp, err := client.Do(req)
+    if err != nil {
+        return "", fmt.Errorf("Unable to list the buckets using backblaze api: %w", err)
+    }
+    if resp.StatusCode != 200 {
+        return "", fmt.Errorf("Unable to list the buckets using backblaze api. Status code: %v", resp.StatusCode)
+    }
+    defer resp.Body.Close()
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return "", fmt.Errorf("Unable to read response to backblaze api: %w", err)
+    }
+
+    var jsonRes map[string]interface{}
+
+    err = json.Unmarshal(body, &jsonRes)
+    if err != nil {
+        return "", fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
+    }
+    for _, bucket := range jsonRes["buckets"].([]interface{}) {
+        bucketName := bucket.(map[string]interface{})["bucketName"].(string)
+        if (bucketName == needle) {
+
+            return bucket.(map[string]interface{})["bucketId"].(string), nil
+        }
+    }
+    return "", fmt.Errorf("bucket not found")
 }
 
 func (s *Store) Origin() string { return "" }

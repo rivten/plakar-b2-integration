@@ -5,7 +5,7 @@
 The configuration parameters are as follows:
 
 - `location` (required): the bucket name (e.g, `b2://my-bucket-name`)
-- `bucketID` (required): the bucket ID
+- `bucketID` (optional): the bucket ID
 - `key_id` (required): the Backblaze Key ID
 - `application_id` (required): the Backblaze Application Key
 
