@@ -232,41 +232,49 @@ func (s *Store) getFileId(needle string) (string, error) {
     // just to find one file id
     // is there a better way to do this ?
 
-    // TODO: multiple call to scan through all the files !!!
-    client := &http.Client{}
-    // NOTE: the backblaze API say this request should be a GET, but it seems that 
-    // the Go http package does not send the body if we make the request a GET.
-    // What can we do ?
-    req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_list_file_names", s.apiUrl), strings.NewReader(fmt.Sprintf("{\"bucketId\":\"%s\"}", s.bucketID)))
-    req.Header.Add("Authorization", s.authToken)
-    req.Header.Add("Content-Type", "application/json")
+    startFileName := ""
+    for {
+        client := &http.Client{}
+        // NOTE: the backblaze API say this request should be a GET, but it seems that 
+        // the Go http package does not send the body if we make the request a GET.
+        // What can we do ?
+        req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_list_file_names", s.apiUrl), strings.NewReader(fmt.Sprintf("{\"bucketId\":\"%s\", \"startFileName\":\"%s\"}", s.bucketID, startFileName)))
+        req.Header.Add("Authorization", s.authToken)
+        req.Header.Add("Content-Type", "application/json")
 
-    resp, err := client.Do(req)
-    if err != nil {
-        return "", fmt.Errorf("Unable to list file names url using backblaze api: %w", err)
-    }
-    if resp.StatusCode != 200 {
-        return "", fmt.Errorf("Unable to list file names url using backblaze api. Status code: %v", resp.StatusCode)
-    }
-    defer resp.Body.Close()
+        resp, err := client.Do(req)
+        if err != nil {
+            return "", fmt.Errorf("Unable to list file names url using backblaze api: %w", err)
+        }
+        if resp.StatusCode != 200 {
+            return "", fmt.Errorf("Unable to list file names url using backblaze api. Status code: %v", resp.StatusCode)
+        }
+        defer resp.Body.Close()
 
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return "", fmt.Errorf("Unable to read response to backblaze api: %w", err)
-    }
+        body, err := io.ReadAll(resp.Body)
+        if err != nil {
+            return "", fmt.Errorf("Unable to read response to backblaze api: %w", err)
+        }
 
-    var jsonRes map[string]interface{}
+        var jsonRes map[string]interface{}
 
-    err = json.Unmarshal(body, &jsonRes)
-    if err != nil {
-        return "", fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
-    }
+        err = json.Unmarshal(body, &jsonRes)
+        if err != nil {
+            return "", fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
+        }
 
-    for _, file := range jsonRes["files"].([]interface{}) {
-        filename := file.(map[string]interface{})["fileName"].(string)
-        if (filename == needle) {
+        for _, file := range jsonRes["files"].([]interface{}) {
+            filename := file.(map[string]interface{})["fileName"].(string)
+            if (filename == needle) {
 
-            return file.(map[string]interface{})["fileId"].(string), nil
+                return file.(map[string]interface{})["fileId"].(string), nil
+            }
+        }
+
+        if nextFileName, ok := jsonRes["nextFileName"].(string); !ok {
+            break
+        } else {
+            startFileName = nextFileName
         }
     }
     return "", fmt.Errorf("file not found")
@@ -385,47 +393,55 @@ func (s *Store) List(ctx context.Context, res storage.StorageResource) ([]object
     if err != nil {
         return nil, err
     }
-
-    // TODO: multiple call to scan through all the files !!!
-    client := &http.Client{}
-    // NOTE: the backblaze API say this request should be a GET, but it seems that 
-    // the Go http package does not send the body if we make the request a GET.
-    // What can we do ?
-    req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_list_file_names", s.apiUrl), strings.NewReader(fmt.Sprintf("{\"bucketId\":\"%s\"}", s.bucketID)))
-    req.Header.Add("Authorization", s.authToken)
-    req.Header.Add("Content-Type", "application/json")
-
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to list file names url using backblaze api: %w", err)
-    }
-    if resp.StatusCode != 200 {
-        return nil, fmt.Errorf("Unable to list file names url using backblaze api. Status code: %v", resp.StatusCode)
-    }
-    defer resp.Body.Close()
-
-    body, err := io.ReadAll(resp.Body)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to read response to backblaze api: %w", err)
-    }
-
-    var jsonRes map[string]interface{}
-
-    err = json.Unmarshal(body, &jsonRes)
-    if err != nil {
-        return nil, fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
-    }
-
     ret := make([]objects.MAC, 0)
-    for _, file := range jsonRes["files"].([]interface{}) {
-        filename := file.(map[string]interface{})["fileName"].(string)
-        if strings.HasPrefix(filename, prefix) {
-            realFilename := strings.TrimPrefix(filename, prefix)
-            t, err := hex.DecodeString(realFilename)
-            if err != nil {
-                return nil, fmt.Errorf("Unable decode hex filename: %w", err)
+
+    startFileName := ""
+    for {
+        client := &http.Client{}
+        // NOTE: the backblaze API say this request should be a GET, but it seems that 
+        // the Go http package does not send the body if we make the request a GET.
+        // What can we do ?
+        req, err := http.NewRequest("POST", fmt.Sprintf("%s/b2api/v4/b2_list_file_names", s.apiUrl), strings.NewReader(fmt.Sprintf("{\"bucketId\":\"%s\",\"startFileName\":\"%s\"}", s.bucketID, startFileName)))
+        req.Header.Add("Authorization", s.authToken)
+        req.Header.Add("Content-Type", "application/json")
+
+        resp, err := client.Do(req)
+        if err != nil {
+            return nil, fmt.Errorf("Unable to list file names url using backblaze api: %w", err)
+        }
+        if resp.StatusCode != 200 {
+            return nil, fmt.Errorf("Unable to list file names url using backblaze api. Status code: %v", resp.StatusCode)
+        }
+        defer resp.Body.Close()
+
+        body, err := io.ReadAll(resp.Body)
+        if err != nil {
+            return nil, fmt.Errorf("Unable to read response to backblaze api: %w", err)
+        }
+
+        var jsonRes map[string]interface{}
+
+        err = json.Unmarshal(body, &jsonRes)
+        if err != nil {
+            return nil, fmt.Errorf("Unable to parse JSON response from backblaze api: %w", err)
+        }
+
+        for _, file := range jsonRes["files"].([]interface{}) {
+            filename := file.(map[string]interface{})["fileName"].(string)
+            if strings.HasPrefix(filename, prefix) {
+                realFilename := strings.TrimPrefix(filename, prefix)
+                t, err := hex.DecodeString(realFilename)
+                if err != nil {
+                    return nil, fmt.Errorf("Unable decode hex filename: %w", err)
+                }
+                ret = append(ret, objects.MAC(t))
             }
-            ret = append(ret, objects.MAC(t))
+        }
+
+        if nextFileName, ok := jsonRes["nextFileName"].(string); !ok {
+            break
+        } else {
+            startFileName = nextFileName
         }
     }
 
